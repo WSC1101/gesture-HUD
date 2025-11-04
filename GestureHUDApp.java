@@ -59,9 +59,15 @@ public class GestureHUDApp extends Application implements GestureListener {
         GestureRouter gestureRouter = new GestureRouter();
 
         LandmarkHandler landmarkHandler =new LandmarkHandler(this);
+        PinchHandler pinchHandler = new PinchHandler();
+        DragHandler dragHandler = new DragHandler();
+        ZoomHandler zoomHandler = new ZoomHandler();
 
-
+        gestureRouter.handlerMap.put("drag",  dragHandler);
         gestureRouter.handlerMap.put("HAND_LANDMARKS", landmarkHandler);
+        gestureRouter.handlerMap.put("pinch", pinchHandler);
+        gestureRouter.handlerMap.put("pinch_zoom", zoomHandler);
+
 
         server = new MainServer(PORT, gestureRouter);
         new Thread(() -> server.start()).start();
