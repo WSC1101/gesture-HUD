@@ -1,4 +1,11 @@
 package org.example;
 
-public class ZoomHandler {
+import org.json.JSONObject;
+
+public class ZoomHandler implements GestureHandler {
+
+    public void handle(JSONObject data){
+
+    }
+
 }
