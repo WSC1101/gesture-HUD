@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset='utf-8' />
+    <title>Gesture HUD (Decoupled)</title>
+    <script src='https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.js'></script>
+    <link href='https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.css' rel='stylesheet' />
+    <style>
+        /* 스타일은 동일 */
+        body { margin: 0; padding: 0; overflow: hidden; background: #000; }
+        #map { position: absolute; top: 0; bottom: 0; width: 100%; /* 필터 효과 등 동일 */ }
+    </style>
+</head>
+<body>
+<div id="map"></div>
+
+<script>
+    console.log("--- JAVASCRIPT EXECUTING (Decoupled Mode) ---");
+
+    mapboxgl.accessToken = 'pk.eyJ1Ijoic3djMTEwMSIsImEiOiJjbWhrNDRhYjcxbGNiMm5xMXdqbXFhNHU5In0.THY7zAccvZppLBVTe7XU3w'; // (기존과 동일)
+
+    const map = new mapboxgl.Map({
+        container: 'map',
+        style: 'mapbox://styles/mapbox/dark-v11',
+        // (기존 Mapbox 설정과 동일)
+        center: [-74.0060, 40.7128],
+        zoom: 15.5,
+        pitch: 70,
+        bearing: -20,
+        antialias: true
+    });
+
+    map.on('style.load', () => {
+        // (기존 3D 빌딩, 안개 등 설정 동일)
+        console.log("[JS LOG] Mapbox Hologram UI Loaded");
+    });
+
+    map.on('load', () => {
+        console.log("=== MAPBOX FULLY LOADED ===");
+    });
+
+
+    // --- JavaScript 핸들러 함수 (Java가 아닌, 이 파일 자신이 호출) ---
+    // 이 함수들은 JCEF 방식과 동일하게 둡니다.
+    function handleDrag(dx, dy) {
+        console.log(`[HTML] handleDrag: dx=${dx}, dy=${dy}`);
+        // 감도 조절 (Java에서 2000을 곱했으니 여기선 그냥 사용)
+        map.panBy([dx, dy], { duration: 0, animate: false });
+    }
+
+    function handleZoom(delta) {
+        console.log(`[HTML] handleZoom: delta=${delta}`);
+        map.zoomTo(map.getZoom() + delta, { duration: 50 }); // 감도 조절
+    }
+
+    function handleClick() {
+        console.log("[HTML] handleClick (Pinch)");
+        // (클릭 효과 추가 가능)
+    }
+
+    // --- WebSocket 연결 (★ 핵심 수정) ---
+    // Java 서버의 WebSocket 포트(8884)로 접속합니다. (기존 8885 -> 8884로 수정)
+    const ws = new WebSocket('ws://localhost:8884');
+
+    ws.onopen = () => {
+        console.log("[JS LOG] Java WebSocket 서버(8884)에 연결되었습니다.");
+    };
+
+    ws.onerror = (error) => {
+        console.error("[JS ERROR] WebSocket 오류:", error);
+    };
+
+    // ★★★ Java가 브로드캐스트한 명령어를 수신하는 곳 ★★★
+    ws.onmessage = (event) => {
+        try {
+            const msg = JSON.parse(event.data);
+
+            // Java 핸들러가 보낸 'command' 키를 분석합니다.
+            switch (msg.command) {
+                case 'drag':
+                    // Java가 보낸 dx, dy 값으로 handleDrag 함수를 "스스로" 호출
+                    handleDrag(msg.dx, msg.dy);
+                    break;
+                case 'zoom':
+                    // (ZoomHandler가 보낸 delta 값으로 handleZoom 호출)
+                    handleZoom(msg.delta);
+                    break;
+                case 'pinch':
+                    // (PinchHandler가 보낸 명령으로 handleClick 호출)
+                    handleClick();
+                    break;
+                // 'expansion_zoom'도 'zoom' 커맨드를 사용하도록 Java 핸들러에서 통일
+                case 'expansion_zoom':
+                    handleZoom(msg.delta);
+                    break;
+            }
+
+        } catch (e) {
+            // console.warn("수신 데이터가 JSON이 아님:", event.data);
+        }
+    };
+
+</script>
+</body>
+</html>
