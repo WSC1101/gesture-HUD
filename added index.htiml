@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>Holographic Earth HUD</title>
+
+    <script src="https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.js"></script>
+    <link href="https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.css" rel="stylesheet" />
+
+    <style>
+        /* =============================
+           GLOBAL UI / BACKGROUND
+           ============================= */
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+
+            /* 실제 우주 느낌 색감 강화 */
+            background: radial-gradient(circle at 30% 30%, #0a0a1f 0%, #000015 45%, #000000 100%);
+            font-family: 'Orbitron', sans-serif;
+            color: #00ffff;
+        }
+
+        /* =============================
+           MAP CANVAS
+           ============================= */
+        #map {
+            position: absolute;
+            inset: 0;
+            filter: brightness(1.2) contrast(1.25) saturate(1.25);
+        }
+
+        /* =============================
+           REMOVE ALL MAPBOX DEFAULT UI
+           ============================= */
+        .mapboxgl-ctrl-top-left,
+        .mapboxgl-ctrl-top-right,
+        .mapboxgl-ctrl-bottom-left,
+        .mapboxgl-ctrl-bottom-right {
+            display: none !important;
+        }
+
+        /* =============================
+           HUD GRID LINES
+           ============================= */
+        .hud-grid {
+            position: absolute;
+            inset: 0;
+            background-image:
+                    linear-gradient(rgba(0,255,255,0.05) 1px, transparent 1px),
+                    linear-gradient(90deg, rgba(0,255,255,0.05) 1px, transparent 1px);
+            background-size: 80px 80px;
+            pointer-events: none;
+        }
+
+        /* =============================
+           COORD DISPLAY
+           ============================= */
+        .hud-coords {
+            position: absolute;
+            bottom: 20px;
+            right: 30px;
+            font-size: 0.9rem;
+            text-shadow: 0 0 6px #00ffff;
+        }
+
+        /* =============================
+           NEON MARKER
+           ============================= */
+        .neon-marker {
+            width: 26px;
+            height: 26px;
+            border-radius: 50%;
+            position: relative;
+            cursor: pointer;
+        }
+
+        .neon-ring {
+            position: absolute;
+            top: -7px;
+            left: -7px;
+            width: 40px;
+            height: 40px;
+            border: 2px solid rgba(0,255,255,0.6);
+            border-radius: 50%;
+            box-shadow: 0 0 15px rgba(0,255,255,0.8);
+            animation: spin 4s linear infinite;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to   { transform: rotate(360deg); }
+        }
+
+        /* =============================
+           POPUP STYLE
+           ============================= */
+        .mapboxgl-popup-content {
+            background: rgba(0, 20, 30, 0.92);
+            border: 1px solid #00ffff;
+            border-radius: 10px;
+            color: #00ffff;
+            font-size: 0.9rem;
+            box-shadow: 0 0 12px #00ffff;
+            text-shadow: 0 0 6px #00ffff;
+            padding: 12px 16px;
+        }
+    </style>
+</head>
+
+<body>
+<div id="map"></div>
+<div class="hud-grid"></div>
+<div class="hud-coords" id="coords">Lat: 0 | Lng: 0</div>
+
+<script>
+    /* ======================================================
+       INITIALIZE MAP
+       ====================================================== */
+    mapboxgl.accessToken = 'pk.eyJ1Ijoic3djMTEwMSIsImEiOiJjbWhrNDRhYjcxbGNiMm5xMXdqbXFhNHU5In0.THY7zAccvZppLBVTe7XU3w';
+
+    const map = new mapboxgl.Map({
+        container: 'map',
+        style: 'mapbox://styles/mapbox/dark-v11',
+        center: [0, 20],
+        zoom: 1.5,
+        pitch: 45,
+        bearing: 0,
+        antialias: true,
+        dragRotate: true,
+        dragPan: true,
+        attributionControl: false
+    });
+
+    /* ======================================================
+       HOLOGRAPHIC FOG (우주 → 대기 → 지표)
+       ====================================================== */
+    function setHolographicFog() {
+        map.setFog({
+            color: "rgb(0, 40, 70)",
+            "high-color": "rgb(0, 210, 255)",
+            "space-color": "rgb(2, 2, 18)",
+            "horizon-blend": 0.4,
+            "star-intensity": 0.55
+        });
+    }
+
+    /* ======================================================
+       3D NEON BUILDINGS
+       ====================================================== */
+    function addNeonBuildings() {
+        const layers = map.getStyle().layers;
+        const labelLayer = layers.find(l => l.type === "symbol");
+
+        map.addLayer({
+            id: "3d-buildings",
+            source: "composite",
+            "source-layer": "building",
+            filter: ["==", "extrude", "true"],
+            type: "fill-extrusion",
+            minzoom: 10,
+            paint: {
+                "fill-extrusion-color": [
+                    "interpolate", ["linear"], ["get", "height"],
+                    0, "#00bcd4",
+                    60, "#00eaff",
+                    200, "#00ffd5"
+                ],
+                "fill-extrusion-height": ["get", "height"],
+                "fill-extrusion-opacity": 0.8
+            }
+        }, labelLayer?.id);
+    }
+
+    /* ======================================================
+       CITY LIST
+       ====================================================== */
+    const cities = [
+        { name: "Seoul", lng: 126.9780, lat: 37.5665, info: "대한민국의 수도. 첨단기술 중심지." },
+        { name: "New York", lng: -74.0060, lat: 40.7128, info: "미국의 금융·문화 중심지." },
+        { name: "Tokyo", lng: 139.6917, lat: 35.6895, info: "일본의 수도이자 메가시티." },
+
+        /* ==== 추가된 수도 ==== */
+        { name: "London", lng: -0.1276, lat: 51.5074, info: "영국의 수도. 금융·문화의 중심지." },
+        { name: "Paris", lng: 2.3522, lat: 48.8566, info: "프랑스의 수도. 예술과 패션의 도시." },
+        { name: "Beijing", lng: 116.4074, lat: 39.9042, info: "중국의 수도. 역사와 현대가 공존." }
+    ];
+
+    /* ======================================================
+       ADD NEON MARKER
+       ====================================================== */
+    function addNeonMarker(city) {
+        const el = document.createElement("div");
+        el.className = "neon-marker";
+
+        const ring = document.createElement("div");
+        ring.className = "neon-ring";
+        el.appendChild(ring);
+
+        const popup = new mapboxgl.Popup({
+            closeButton: false,
+            closeOnClick: true,
+            offset: 25
+        }).setHTML(`<strong>${city.name}</strong><br>${city.info}`);
+
+        el.addEventListener("click", () => {
+            // 팝업 열기
+            popup.setLngLat([city.lng, city.lat]).addTo(map);
+
+            // 💠 마커 클릭 시 자동 이동
+            map.flyTo({
+                center: [city.lng, city.lat],
+                zoom: 13,      // 도시 주변까지 확대
+                pitch: 60,
+                bearing: -20,
+                speed: 0.7,
+                curve: 1.5
+            });
+        });
+
+        new mapboxgl.Marker(el)
+            .setLngLat([city.lng, city.lat])
+            .addTo(map);
+    }
+
+    /* ======================================================
+       CLICK NEAR CITY → OPEN POPUP
+       (아이콘 안 눌러도 편하게)
+       ====================================================== */
+    map.on("click", e => {
+        cities.forEach(city => {
+            const dist = Math.hypot(e.lngLat.lng - city.lng, e.lngLat.lat - city.lat);
+            if (dist < 1.0) {
+                new mapboxgl.Popup({ closeButton: false, offset: 25 })
+                    .setLngLat([city.lng, city.lat])
+                    .setHTML(`<strong>${city.name}</strong><br>${city.info}`)
+                    .addTo(map);
+            }
+        });
+    });
+
+    /* ======================================================
+       STYLE LOAD EVENTS
+       ====================================================== */
+    map.on("style.load", () => {
+        setHolographicFog();
+        addNeonBuildings();
+        cities.forEach(addNeonMarker);
+    });
+
+    /* ======================================================
+       COORD HUD UPDATE
+       ====================================================== */
+    map.on("move", () => {
+        const c = map.getCenter();
+        coords.textContent = `Lat: ${c.lat.toFixed(4)} | Lng: ${c.lng.toFixed(4)} | Zoom: ${map.getZoom().toFixed(2)}`;
+    });
+</script>
+
+</body>
+</html>
