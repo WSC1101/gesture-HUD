@@ -3,36 +3,251 @@
 <head>
     <meta charset='utf-8' />
     <title>Gesture HUD (Decoupled)</title>
+
     <script src='https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.js'></script>
     <link href='https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.css' rel='stylesheet' />
     <style>
-        /* 스타일은 동일 */
-        body { margin: 0; padding: 0; overflow: hidden; background: #000; }
-        #map { position: absolute; top: 0; bottom: 0; width: 100%; /* 필터 효과 등 동일 */ }
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+
+            background: radial-gradient(circle at 30% 30%, #0a0a1f 0%, #000015 45%, #000000 100%);
+            font-family: 'Orbitron', sans-serif;
+            color: #00ffff;
+        }
+        #map {
+            position: absolute;
+            inset: 0;
+            filter: brightness(1.2) contrast(1.25) saturate(1.25);
+        }
+        .mapboxgl-ctrl-top-left,
+        .mapboxgl-ctrl-top-right,
+        .mapboxgl-ctrl-bottom-left,
+        .mapboxgl-ctrl-bottom-right {
+            display: none !important;
+        }
+        .hud-grid {
+            position: absolute;
+            inset: 0;
+            background-image:
+                    linear-gradient(rgba(0,255,255,0.05) 1px, transparent 1px),
+                    linear-gradient(90deg, rgba(0,255,255,0.05) 1px, transparent 1px);
+            background-size: 80px 80px;
+            pointer-events: none;
+        }
+        .hud-coords {
+            position: absolute;
+            bottom: 20px;
+            right: 30px;
+            font-size: 0.9rem;
+            text-shadow: 0 0 6px #00ffff;
+        }
+
+
+        .neon-marker {
+            width: 26px;
+            height: 26px;
+            border-radius: 50%;
+            position: relative;
+            cursor: pointer;
+        }
+
+        .neon-ring {
+            position: absolute;
+            top: -7px;
+            left: -7px;
+            width: 40px;
+            height: 40px;
+            border: 2px solid rgba(0,255,255,0.6);
+            border-radius: 50%;
+            box-shadow: 0 0 15px rgba(0,255,255,0.8);
+            animation: spin 4s linear infinite;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to   { transform: rotate(360deg); }
+        }
+
+
+        .mapboxgl-popup-content {
+            background: rgba(0, 20, 30, 0.92);
+            border: 1px solid #00ffff;
+            border-radius: 10px;
+            color: #00ffff;
+            font-size: 0.9rem;
+            box-shadow: 0 0 12px #00ffff;
+            text-shadow: 0 0 6px #00ffff;
+            padding: 12px 16px;
+        }
+
+        #cursor {
+            position: absolute;
+            width: 3px;
+            height: 3px;
+            border: 1px solid #00f3ff;
+            border-radius: 50%;
+            background-color: rgba(0, 243, 255, 0.3);
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            display: none;
+            opacity: 0;
+            z-index: 999999;
+            transition: opacity 0.15s;
+        }
+        #cursor.clicking {
+            width: 10px;
+            height: 10px;
+            background-color: rgba(255, 255, 255, 0.7);
+        }
     </style>
 </head>
 <body>
+
+<div id="cursor"></div>
 <div id="map"></div>
+<div class="hud-grid"></div>
+<div class="hud-coords" id="coords">Lat: 0 | Lng: 0</div>
 
 <script>
-    console.log("--- JAVASCRIPT EXECUTING (Decoupled Mode) ---");
 
-    mapboxgl.accessToken = 'pk.eyJ1Ijoic3djMTEwMSIsImEiOiJjbWhrNDRhYjcxbGNiMm5xMXdqbXFhNHU5In0.THY7zAccvZppLBVTe7XU3w'; // (기존과 동일)
+    mapboxgl.accessToken = 'pk.eyJ1Ijoic3djMTEwMSIsImEiOiJjbWhrNDRhYjcxbGNiMm5xMXdqbXFhNHU5In0.THY7zAccvZppLBVTe7XU3w';
 
     const map = new mapboxgl.Map({
         container: 'map',
         style: 'mapbox://styles/mapbox/dark-v11',
-        // (기존 Mapbox 설정과 동일)
-        center: [-74.0060, 40.7128],
-        zoom: 15.5,
-        pitch: 70,
-        bearing: -20,
-        antialias: true
+        center: [0, 20],
+        zoom: 1.5,
+        pitch: 45,
+        bearing: 0,
+        antialias: true,
+        projection: 'globe',
+        dragRotate: false,
+        dragPan: true,
+        attributionControl: false,
+        touchZoomRotate: false,
     });
 
-    map.on('style.load', () => {
-        // (기존 3D 빌딩, 안개 등 설정 동일)
-        console.log("[JS LOG] Mapbox Hologram UI Loaded");
+
+
+    function setHolographicFog() {
+        map.setFog({
+            color: "rgb(0, 40, 70)",
+            "high-color": "rgb(0, 210, 255)",
+            "space-color": "rgb(2, 2, 18)",
+            "horizon-blend": 0.4,
+            "star-intensity": 0.55
+        });
+    }
+
+
+    function addNeonBuildings() {
+        const layers = map.getStyle().layers;
+        const labelLayer = layers.find(l => l.type === "symbol");
+
+        map.addLayer({
+            id: "3d-buildings",
+            source: "composite",
+            "source-layer": "building",
+            filter: ["==", "extrude", "true"],
+            type: "fill-extrusion",
+            minzoom: 10,
+            paint: {
+                "fill-extrusion-color": [
+                    "interpolate", ["linear"], ["get", "height"],
+                    0, "#00bcd4",
+                    60, "#00eaff",
+                    200, "#00ffd5"
+                ],
+                "fill-extrusion-height": ["get", "height"],
+                "fill-extrusion-opacity": 0.8
+            }
+        }, labelLayer?.id);
+    }
+    map.dragRotate.disable();
+    map.touchZoomRotate.disableRotation();
+    map.keyboard.disableRotation();
+
+
+    const cities = [
+        { name: "Seoul", lng: 126.9780, lat: 37.5665, info: "대한민국의 수도. 첨단기술 중심지." },
+        { name: "New York", lng: -74.0060, lat: 40.7128, info: "미국의 금융·문화 중심지." },
+        { name: "Tokyo", lng: 139.6917, lat: 35.6895, info: "일본의 수도이자 메가시티." },
+        { name: "London", lng: -0.1276, lat: 51.5074, info: "영국의 수도. 금융·문화의 중심지." },
+        { name: "Paris", lng: 2.3522, lat: 48.8566, info: "프랑스의 수도. 예술과 패션의 도시." },
+        { name: "Beijing", lng: 116.4074, lat: 39.9042, info: "중국의 수도. 역사와 현대가 공존." }
+    ];
+
+
+
+    const markerHandlers = new Map();
+
+
+    function addNeonMarker(city) {
+        const el = document.createElement("div");
+        el.className = "neon-marker";
+
+        el.dataset.cityName = city.name;
+
+        const ring = document.createElement("div");
+        ring.className = "neon-ring";
+        el.appendChild(ring);
+
+        const popup = new mapboxgl.Popup({
+            closeButton: false,
+            closeOnClick: true,
+            offset: 25
+        }).setHTML(`<strong>${city.name}</strong><br>${city.info}`);
+
+        const clickHandler = () => {
+            popup.setLngLat([city.lng, city.lat]).addTo(map);
+
+            map.flyTo({
+                center: [city.lng, city.lat],
+                zoom: 13,
+                pitch: 60,
+                bearing: 0,
+                speed: 0.7,
+                curve: 1.5
+            });
+        };
+
+        el.addEventListener("click", clickHandler);
+
+        markerHandlers.set(city.name, clickHandler);
+
+        new mapboxgl.Marker(el)
+            .setLngLat([city.lng, city.lat])
+            .addTo(map);
+    }
+
+
+    map.on("click", e => {
+        cities.forEach(city => {
+            const dist = Math.hypot(e.lngLat.lng - city.lng, e.lngLat.lat - city.lat);
+            if (dist < 1.0) {
+                new mapboxgl.Popup({ closeButton: false, offset: 25 })
+                    .setLngLat([city.lng, city.lat])
+                    .setHTML(`<strong>${city.name}</strong><br>${city.info}`)
+                    .addTo(map);
+            }
+        });
+    });
+
+
+    map.on("style.load", () => {
+        setHolographicFog();
+        addNeonBuildings();
+        cities.forEach(addNeonMarker);
+        map.stop();
+    });
+
+
+    map.on("move", () => {
+        const c = map.getCenter();
+        coords.textContent = `Lat: ${c.lat.toFixed(4)} | Lng: ${c.lng.toFixed(4)} | Zoom: ${map.getZoom().toFixed(2)}`;
+
     });
 
     map.on('load', () => {
@@ -40,63 +255,165 @@
     });
 
 
-    // --- JavaScript 핸들러 함수 (Java가 아닌, 이 파일 자신이 호출) ---
-    // 이 함수들은 JCEF 방식과 동일하게 둡니다.
+    const cursor = document.getElementById('cursor');
+
     function handleDrag(dx, dy) {
         console.log(`[HTML] handleDrag: dx=${dx}, dy=${dy}`);
-        // 감도 조절 (Java에서 2000을 곱했으니 여기선 그냥 사용)
-        map.panBy([dx, dy], { duration: 0, animate: false });
+        map.panBy([-dx, -dy], { duration: 0, animate: false });
     }
 
-    function handleZoom(delta) {
-        console.log(`[HTML] handleZoom: delta=${delta}`);
-        map.zoomTo(map.getZoom() + delta, { duration: 50 }); // 감도 조절
+    function handleRotate(deltaBearing, deltaPitch) {
+        deltaBearing = deltaBearing || 0;
+        deltaPitch = deltaPitch || 0;
+
+        console.log(`[HTML] handleRotate: bearing=${deltaBearing}, pitch=${deltaPitch}`);
+
+        const currentBearing = map.getBearing();
+        const currentPitch = map.getPitch();
+        let newPitch = currentPitch + deltaPitch;
+
+        newPitch = Math.max(0, Math.min(newPitch, 85));
+
+        map.easeTo({
+            bearing: currentBearing + deltaBearing,
+            pitch: newPitch,
+            duration: 50,
+            easing: t => t
+        });
+    }
+
+
+    function handleZoom(delta, x, y) {
+        console.log(`[HTML] handleZoom: delta=${delta}, x=${x}, y=${y}`);
+
+        const currentZoom = map.getZoom();
+        const zoomOptions = {
+            duration: 50,
+            bearing: map.getBearing()
+        };
+
+
+        if (currentZoom > 4.0) {
+            const screenX = x * window.innerWidth;
+            const screenY = y * window.innerHeight;
+            const point = map.unproject([screenX, screenY]);
+
+            zoomOptions.around = point;
+        } else {
+        }
+
+        map.zoomTo(currentZoom + delta, zoomOptions);
     }
 
     function handleClick() {
-        console.log("[HTML] handleClick (Pinch)");
-        // (클릭 효과 추가 가능)
+        console.log("[JS] handleClick (Pinch)");
+        if (cursor) {
+            cursor.classList.add('clicking');
+            setTimeout(() => cursor.classList.remove('clicking'), 150);
+        }
+
+        const cursorX = parseFloat(cursor.style.left);
+        const cursorY = parseFloat(cursor.style.top);
+
+        if (!isNaN(cursorX) && !isNaN(cursorY)) {
+
+            const elementsAtPoint = document.elementsFromPoint(cursorX, cursorY);
+
+            const markerElement = elementsAtPoint.find(el =>
+                el.classList.contains('neon-marker') ||
+                el.closest('.neon-marker')
+            );
+
+            if (markerElement) {
+                const marker = markerElement.classList.contains('neon-marker')
+                    ? markerElement
+                    : markerElement.closest('.neon-marker');
+
+                const cityName = marker.dataset.cityName;
+                console.log(`[CLICK] marker click: ${cityName}`);
+
+                const handler = markerHandlers.get(cityName);
+                if (handler) {
+                    handler();
+                }
+            }
+        }
     }
 
-    // --- WebSocket 연결 (★ 핵심 수정) ---
-    // Java 서버의 WebSocket 포트(8884)로 접속합니다. (기존 8885 -> 8884로 수정)
+    function handlePointerMove(x, y) {
+        if (!cursor) return;
+        const screenX = x * window.innerWidth;
+        const screenY = y * window.innerHeight;
+
+        cursor.style.left = `${screenX}px`;
+        cursor.style.top = `${screenY}px`;
+        cursor.style.display = 'block';
+        cursor.style.opacity = '1';
+    }
+
+    function handlePointerHide() {
+        if (cursor) {
+            cursor.style.opacity = '0';
+            /* ... (handlePointerHide 나머지 동일) ... */
+            setTimeout(() => {
+                if (cursor.style.opacity === '0') {
+                    cursor.style.display = 'none';
+                }
+            }, 100);
+        }
+    }
+
+//websocket(java) connect
     const ws = new WebSocket('ws://localhost:8884');
 
-    ws.onopen = () => {
-        console.log("[JS LOG] Java WebSocket 서버(8884)에 연결되었습니다.");
-    };
+    ws.onopen = () => console.log("[JS LOG] Java WebSocket server(8884) connected!");
+    ws.onerror = (error) => console.error("[JS ERROR] WebSocket err:", error);
 
-    ws.onerror = (error) => {
-        console.error("[JS ERROR] WebSocket 오류:", error);
-    };
 
-    // ★★★ Java가 브로드캐스트한 명령어를 수신하는 곳 ★★★
+
     ws.onmessage = (event) => {
         try {
             const msg = JSON.parse(event.data);
 
-            // Java 핸들러가 보낸 'command' 키를 분석합니다.
+            console.log("[WS] Received:", msg);
+
+            let command = msg.command;
+
+            if (!command) {
+                const keys = Object.keys(msg);
+                if (keys.length > 0) {
+                    const gestureKey = keys[0];
+                    const gestureData = msg[gestureKey];
+                    command = gestureData.action || gestureKey;
+                }
+            }
+
             switch (msg.command) {
+                case 'pointer':
+                case 'pointer_move':
+                    handlePointerMove(msg.x, msg.y);
+                    break;
+                case 'pointer_hide':
+                    handlePointerHide();
+                    break;
                 case 'drag':
-                    // Java가 보낸 dx, dy 값으로 handleDrag 함수를 "스스로" 호출
+                    handlePointerHide();
                     handleDrag(msg.dx, msg.dy);
                     break;
                 case 'zoom':
-                    // (ZoomHandler가 보낸 delta 값으로 handleZoom 호출)
-                    handleZoom(msg.delta);
+                    handleZoom(msg.delta, msg.x, msg.y);
                     break;
                 case 'pinch':
-                    // (PinchHandler가 보낸 명령으로 handleClick 호출)
                     handleClick();
                     break;
-                // 'expansion_zoom'도 'zoom' 커맨드를 사용하도록 Java 핸들러에서 통일
-                case 'expansion_zoom':
-                    handleZoom(msg.delta);
+                case 'rotate':
+                    handleRotate(msg.delta_bearing, msg.delta_pitch);
                     break;
+                default:
+                    console.warn("[WS] Unknown command:", msg.command);
             }
 
         } catch (e) {
-            // console.warn("수신 데이터가 JSON이 아님:", event.data);
         }
     };
 
